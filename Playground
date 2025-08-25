@@ -1,0 +1,346 @@
+import React, { useMemo, useState } from "react";
+import { motion } from "framer-motion";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
+import { Info } from "lucide-react";
+
+// ==========================
+// Utilities
+// ==========================
+// Helper: degrees ↔ radians
+const deg2rad = (d: number) => (Math.PI / 180) * d;
+const rad2deg = (r: number) => (180 / Math.PI) * r;
+
+// For |Phi+>, in the x–z plane the correlation is E(a,b) = cos(a - b)
+export function E_deg(aDeg: number, bDeg: number) {
+  const a = deg2rad(aDeg);
+  const b = deg2rad(bDeg);
+  return Math.cos(a - b);
+}
+
+export function S_CHSH(a1: number, a2: number, b1: number, b2: number) {
+  // FIX: complete expression (was previously truncated ending with '-')
+  return (
+    E_deg(a1, b1) +
+    E_deg(a1, b2) +
+    E_deg(a2, b1) -
+    E_deg(a2, b2)
+  );
+}
+
+// Reduced density matrix of either subsystem of |Phi+> is 0.5 * I
+const reducedDM = [
+  [0.5, 0.0],
+  [0.0, 0.5],
+];
+const purity = 0.5; // Tr(rho^2) = 0.5
+
+// Small pretty number formatter
+const fmt = (x: number) => (Math.abs(x) < 1e-6 ? 0 : Math.round(x * 1000) / 1000);
+
+// ==========================
+// UI Primitives (Added InfoBox to fix ReferenceError)
+// ==========================
+function InfoBox({ title, value }: { title: string; value: number | string }) {
+  return (
+    <div className="rounded-xl bg-white border px-3 py-2 shadow-sm">
+      <div className="text-[11px] uppercase tracking-wide text-gray-500">{title}</div>
+      <div className="text-lg font-semibold font-mono">{typeof value === "number" ? fmt(value) : value}</div>
+    </div>
+  );
+}
+
+// ==========================
+// Main Component
+// ==========================
+export default function BellCHSHPlayground() {
+  // Measurement angles in degrees (x–z plane)
+  const [a1, setA1] = useState(0);
+  const [a2, setA2] = useState(90);
+  const [b1, setB1] = useState(45);
+  const [b2, setB2] = useState(-45);
+
+  // Sweep control (which parameter to sweep for the chart)
+  const [sweepParam, setSweepParam] = useState<"a1" | "a2" | "b1" | "b2">("b1");
+
+  const S = useMemo(() => S_CHSH(a1, a2, b1, b2), [a1, a2, b1, b2]);
+
+  const chartData = useMemo(() => {
+    const data: { x: number; S: number }[] = [];
+    for (let d = 0; d <= 360; d += 3) {
+      const v = { a1, a2, b1, b2 } as any;
+      v[sweepParam] = d - 180; // center around 0° for nicer symmetry
+      data.push({ x: v[sweepParam], S: S_CHSH(v.a1, v.a2, v.b1, v.b2) });
+    }
+    return data;
+  }, [a1, a2, b1, b2, sweepParam]);
+
+  return (
+    <div className="min-h-screen w-full bg-white text-gray-900 p-6">
+      <div className="max-w-6xl mx-auto grid gap-6">
+        {/* Header */}
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35 }}
+          className="flex flex-col gap-2"
+        >
+          <h1 className="text-3xl font-bold tracking-tight">Bell/CHSH Playground – Qubit ⊗ Photon (2-Level)</h1>
+          <p className="text-sm text-gray-600">
+            Interaktives Demo für den Bell-Zustand <span className="font-mono">|Φ⁺⟩ = (|00⟩ + |11⟩)/√2</span>.
+            Messrichtungen liegen in der x–z Ebene der Bloch-Kugel. Korrigierbar über Winkel in Grad.
+          </p>
+        </motion.div>
+
+        {/* Main grid */}
+        <div className="grid md:grid-cols-2 gap-6">
+          {/* Controls */}
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35, delay: 0.1 }}
+            className="rounded-2xl border p-4 shadow-sm bg-gray-50"
+          >
+            <h2 className="text-xl font-semibold mb-2">Messwinkel (in Grad, x–z Ebene)</h2>
+            <AngleSlider label="A₁" value={a1} onChange={setA1} />
+            <AngleSlider label="A₂" value={a2} onChange={setA2} />
+            <AngleSlider label="B₁" value={b1} onChange={setB1} />
+            <AngleSlider label="B₂" value={b2} onChange={setB2} />
+
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <InfoBox title="E(A₁,B₁)" value={E_deg(a1, b1)} />
+              <InfoBox title="E(A₁,B₂)" value={E_deg(a1, b2)} />
+              <InfoBox title="E(A₂,B₁)" value={E_deg(a2, b1)} />
+              <InfoBox title="E(A₂,B₂)" value={E_deg(a2, b2)} />
+            </div>
+
+            <div className="mt-4 p-4 rounded-xl bg-white border shadow-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-sm uppercase tracking-wide text-gray-500">CHSH</span>
+                <Info className="w-4 h-4 text-gray-400" />
+              </div>
+              <div className="text-3xl font-bold">S = {fmt(S)}</div>
+              <p className={`text-sm ${Math.abs(S) > 2 ? "text-green-600" : "text-gray-600"}`}>
+                {Math.abs(S) > 2
+                  ? "Verletzung der Bell-Ungleichung (Nichtlokalität)."
+                  : "Keine Verletzung (klassisch vereinbar)."}
+              </p>
+              <p className="text-xs text-gray-500 mt-2">
+                Maximales quantenmechanisches Limit (Tsirelson-Grenze): 2·√2 ≈ 2.828
+              </p>
+            </div>
+          </motion.div>
+
+          {/* Visuals: Bloch circle (x–z plane) + reduced DM */}
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35, delay: 0.15 }}
+            className="rounded-2xl border p-4 shadow-sm bg-gray-50"
+          >
+            <h2 className="text-xl font-semibold mb-2">Visualisierung</h2>
+            <div className="grid gap-4">
+              <div className="rounded-xl bg-white border p-4 shadow-sm">
+                <p className="text-sm text-gray-600 mb-2">Bloch-Kreis (x–z Ebene): Richtungen A₁, A₂, B₁, B₂</p>
+                <BlochXZ a1={a1} a2={a2} b1={b1} b2={b2} />
+              </div>
+
+              <div className="rounded-xl bg-white border p-4 shadow-sm">
+                <p className="text-sm text-gray-600">Reduzierte Dichtematrix des Qubits (maximal gemischt)</p>
+                <table className="w-full mt-2 text-sm">
+                  <tbody>
+                    {reducedDM.map((row, i) => (
+                      <tr key={i}>
+                        {row.map((x, j) => (
+                          <td key={j} className="border px-3 py-2 text-center font-mono">
+                            {x.toFixed(3)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="mt-2 text-xs text-gray-600">Purity Tr(ρ²) = {purity.toFixed(3)}</div>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+
+        {/* Chart */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35, delay: 0.2 }}
+          className="rounded-2xl border p-4 shadow-sm bg-gray-50"
+        >
+          <div className="flex items-end justify-between gap-4 flex-wrap">
+            <div>
+              <h2 className="text-xl font-semibold">CHSH-Verlauf bei Winkelsweep</h2>
+              <p className="text-sm text-gray-600">Wähle, welcher Winkel gesweept wird. Die übrigen bleiben fix.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-700">Sweep:</label>
+              <select
+                className="border rounded-xl px-3 py-2 text-sm bg-white"
+                value={sweepParam}
+                onChange={(e) => setSweepParam(e.target.value as any)}
+              >
+                <option value="a1">A₁</option>
+                <option value="a2">A₂</option>
+                <option value="b1">B₁</option>
+                <option value="b2">B₂</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="w-full h-72 mt-4">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="x" tickFormatter={(v) => `${v}°`} label={{ value: `${sweepParam.toUpperCase()} (°)`, position: "insideBottom", offset: -5 }} />
+                <YAxis domain={[-3, 3]} ticks={[-3,-2,-1,0,1,2,3]} />
+                <Tooltip formatter={(v: any) => fmt(Number(v))} labelFormatter={(l: any) => `${l}°`} />
+                <Line type="monotone" dataKey="S" dot={false} strokeWidth={2} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          <p className="text-xs text-gray-600 mt-2">Hinweis: Theoretisches Maximum ist 2·√2 ≈ 2.828 (Tsirelson-Grenze). Klassische Theorien erfüllen |S| ≤ 2.</p>
+        </motion.div>
+
+        {/* Self-tests */}
+        <SelfTests />
+
+        {/* Footer note */}
+        <div className="text-xs text-gray-500">
+          Dieses Demo nutzt die bekannte Eigenschaft des Bell-Zustands |Φ⁺⟩, dass die Korrelationen in der x–z Ebene durch E(a,b) = cos(a − b) beschrieben werden. Damit lassen sich die CHSH-Werte effizient und exakt berechnen.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AngleSlider({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+  return (
+    <div className="mb-3">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-sm font-medium text-gray-800">{label}</span>
+        <span className="text-sm font-mono text-gray-600">{Math.round(value)}°</span>
+      </div>
+      <input
+        type="range"
+        min={-180}
+        max={180}
+        step={1}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full"
+      />
+      <div className="flex justify-between text-[10px] text-gray-500 mt-1">
+        <span>-180°</span>
+        <span>0°</span>
+        <span>180°</span>
+      </div>
+    </div>
+  );
+}
+
+function BlochXZ({ a1, a2, b1, b2 }: { a1: number; a2: number; b1: number; b2: number }) {
+  // Draw simple x–z plane circle with arrows for each angle
+  const W = 280;
+  const H = 280;
+  const cx = W / 2;
+  const cy = H / 2;
+  const R = 110;
+
+  function arrow(thetaDeg: number, stroke: string, label: string, offset: number = 0) {
+    const t = deg2rad(thetaDeg);
+    // x = sin(theta), z = cos(theta) for our parametrization
+    const x = cx + R * Math.sin(t);
+    const y = cy - R * Math.cos(t); // z-axis plotted vertically
+
+    const xTail = cx + (R - 50) * Math.sin(t);
+    const yTail = cy - (R - 50) * Math.cos(t);
+
+    return (
+      <g key={label}>
+        <line x1={xTail} y1={yTail} x2={x} y2={y} stroke={stroke} strokeWidth={3} markerEnd="url(#arrow)" />
+        <text x={x + 6} y={y - 6 + offset} fontSize={12} fill={stroke}>
+          {label}
+        </text>
+      </g>
+    );
+  }
+
+  return (
+    <svg width={W} height={H} className="mx-auto">
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto-start-reverse">
+          <path d="M0,0 L8,4 L0,8 z" />
+        </marker>
+      </defs>
+      {/* Circle */}
+      <circle cx={cx} cy={cy} r={R} fill="none" stroke="#e5e7eb" strokeWidth={2} />
+      {/* Axes labels */}
+      <text x={cx} y={cy - R - 8} textAnchor="middle" fontSize={10} fill="#6b7280">+z</text>
+      <text x={cx} y={cy + R + 12} textAnchor="middle" fontSize={10} fill="#6b7280">-z</text>
+      <text x={cx - R - 14} y={cy} textAnchor="middle" fontSize={10} fill="#6b7280">-x</text>
+      <text x={cx + R + 14} y={cy} textAnchor="middle" fontSize={10} fill="#6b7280">+x</text>
+
+      {/* Arrows for A1, A2, B1, B2 */}
+      {arrow(a1, "#111827", "A1")}
+      {arrow(a2, "#1f2937", "A2", 14)}
+      {arrow(b1, "#2563eb", "B1")}
+      {arrow(b2, "#10b981", "B2", 14)}
+    </svg>
+  );
+}
+
+// ==========================
+// Lightweight Self-Tests (rendered in UI)
+// ==========================
+function SelfTests() {
+  const tests = useMemo(() => {
+    const within = (a: number, b: number, eps = 1e-9) => Math.abs(a - b) <= eps;
+
+    const t1 = { name: "E_deg(0°,0°) = 1", got: E_deg(0, 0), expect: 1 };
+    const t2 = { name: "E_deg(0°,90°) ≈ 0", got: E_deg(0, 90), expect: 0 };
+    const t3 = { name: "Symmetrie E(a,b)=E(b,a)", got: E_deg(30, 75), expect: E_deg(75, 30) };
+    const t4 = { name: "CHSH(0,90,45,-45) = 2√2", got: S_CHSH(0, 90, 45, -45), expect: 2 * Math.SQRT2 };
+    const t5 = { name: "CHSH(0,90,0,0) = 2", got: S_CHSH(0, 90, 0, 0), expect: 2 };
+
+    return [t1, t2, t3, t4, t5].map(t => ({ ...t, pass: within(t.got, t.expect, 1e-9) }));
+  }, []);
+
+  const allPass = tests.every(t => t.pass);
+
+  return (
+    <div className="rounded-2xl border p-4 shadow-sm bg-emerald-50/40">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-sm font-semibold">Selbsttests</span>
+        <span className={`text-xs px-2 py-0.5 rounded-full ${allPass ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
+          {allPass ? "ALLE BESTANDEN" : "FEHLER"}
+        </span>
+      </div>
+      <ul className="text-sm">
+        {tests.map((t, i) => (
+          <li key={i} className="flex items-center justify-between border-t first:border-t-0 py-1">
+            <span>{t.name}</span>
+            <span className={t.pass ? "text-emerald-700" : "text-red-700"}>
+              {t.pass ? "OK" : `FAIL (got ${fmt(t.got)}, expected ${fmt(t.expect)})`}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="text-xs text-gray-500 mt-2">
+        Diese Tests prüfen die wichtigsten mathematischen Identitäten und die erwarteten CHSH-Maxima. Wenn hier etwas rot wird, ist die Formel oder ein Winkel-Handling kaputt.
+      </p>
+    </div>
+  );
+}
